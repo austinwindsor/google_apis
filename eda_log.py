@@ -7,9 +7,11 @@
 import pandas as pd
 import numpy as np 
 import json
+import csv
 import urllib
 from bs4 import BeautifulSoup
-import googlemaps
+import google_maps_services_python.googlemaps as googlemaps
+from googlemaps import geocoding
 import time 
 import argparse
 import requests
@@ -93,48 +95,55 @@ def file_print(output, row, column):
 
 	df.to_csv('CHOA_output_'+ str(track_across)+'_'+str(track_down)+'.csv')
 
-def rev_geo(file):
-	# df = pd.read_csv(file)
-	# grab some lat/long coords from wherever. For this example,
-	# I just opened a javascript console in the browser and ran:
-	#
-	# navigator.geolocation.getCurrentPosition(function(p) {
-	#   console.log(p);
-	# })
-	#
-	latitude = 35.1330343
-	longitude = -90.0625056
+def rev_geo(client, file):
+	
+	data = pd.read_csv(file)
+	data.dropna(how='any',inplace=True)
+	print(data)
+	states = []
+	count = -1
+	for index, row in data.iterrows():
+		count = count + 1
+		#to bypass the 50 requests per minute limit
+		if count == 0:
+			continue
+		elif count % 50 == 0:
+			time.sleep(1)
+		
+		location = (float(row['Latitude']),-1*float(row['Longitude']))
+		print(location)
+		# latitude = 35.1330343
+		# longitude = -90.0625056
 
-	# Did the geocoding request comes from a device with a
-	# location sensor? Must be either true or false.
-	sensor = 'true'
+		output = geocoding.reverse_geocode(client, location, result_type = 'administrative_area_level_1')
+		
+		# with open('practice_location.json', 'w') as f:
+		# 	json.dump(output, f, index= 4)
+		print(output)
+		print(output[0]['address_components'][0]['short_name'])
+		states.append(output[0]['address_components'][0]['short_name'])
 
-	# Hit Google's reverse geocoder directly
-	# NOTE: I *think* their terms state that you're supposed to
-	# use google maps if you use their api for anything.
-	base = "http://maps.googleapis.com/maps/api/geocode/json?"
-	params = "latlng={lat},{lon}&sensor={sen}".format(
-	    lat=latitude,
-	    lon=longitude,
-	    sen=sensor
-	)
-	url = "{base}{params}".format(base=base, params=params)
-	response = requests.get(url)
-	return response.json['results'][0]['formatted_address']
+		
+	# 	print(i['formatted_address'].rsplit(', ', 2)[1].split()[0])
+	print(states)
+	df['State'] = states
+	df.to_csv('update_locations.csv')
+	return df
+
 
 
 #get the distance and times from the Google API
 def main(args):
 
+	gmaps = googlemaps.Client(key=args.api_key)
 	#use the google reverse geolocation code and in file'
 	#current data is stored in lcoation.csv
 	if args.api == 'rev_geo':
-		return rev_geo(args.in_file)
+		return rev_geo(gmaps, args.in_file)
 
 	# constructing the Google Maps API
 	main_string = "https://maps.googleapis.com/maps/api/distancematrix/json?units=metric&"
 	ending = '&mode=bicycling&key='
-	api_key = "AIzaSyCG0I4R5kxhvSltvLx5isq5obK0wiWK5T8"
 
 	origin='origins='
 	dest = '&destinations='
@@ -242,7 +251,7 @@ if __name__ == '__main__':
 	parser = argparse.ArgumentParser()
 	parser.add_argument('-in_file', type = str, help = 'provide the excel file name including file handle')
 	parser.add_argument('-api', help = 'provide google API to use (eg dist_matrix, rev_geo)')
-	# parser.add_argument()
+	parser.add_argument('-api_key')
 	args = parser.parse_args()
 
 	main(args)
